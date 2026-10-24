@@ -204,8 +204,11 @@ button.quiet{
 }
 
 .answer-block{
-  padding-left:12px;
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  column-gap:10px;
   margin-top:20px;
+  padding-left:10px;
   border-left:3px solid transparent;
 }
 
@@ -221,26 +224,103 @@ button.quiet{
   margin:0 0 4px;
 }
 
-button.adopt{
-  margin-top:10px;
-  padding:7px 14px;
-  font-size:13px;
-  color:var(--ok);
-  background:transparent;
-  border:1px solid var(--ok);
+.pick{
+  display:flex;
+  align-items:flex-start;
+  padding:0 2px;
+  cursor:pointer;
 }
 
-button.adopt[aria-pressed="true"]{
-  color:#fff;
-  background:var(--ok);
+.pick input{
+  width:22px;
+  height:22px;
+  margin:1px 0 0;
+  accent-color:var(--ok);
+  cursor:pointer;
 }
 
-.adopted-mark{
-  display:inline-block;
-  margin-top:10px;
-  font-size:13px;
+.pick input:disabled{
+  cursor:default;
+}
+
+.make-card h2{
+  font-family:'Shippori Mincho', serif;
   font-weight:700;
+  font-size:18px;
+  margin:0 0 8px;
+}
+
+.make-card .lead2{
+  margin:0 0 14px;
+  font-size:13px;
+  color:var(--ink-soft);
+}
+
+.make-tools{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  margin-bottom:12px;
+}
+
+.make-tools button{
+  padding:8px 14px;
+  font-size:13px;
+}
+
+#tool-status{
+  font-size:13px;
   color:var(--ok);
+}
+
+#my-summary{
+  width:100%;
+  min-height:140px;
+  font-family:inherit;
+  font-size:15px;
+  line-height:1.7;
+  color:var(--ink);
+  background:var(--paper);
+  border:1px solid var(--paper-line);
+  border-radius:2px;
+  padding:12px 14px;
+  resize:vertical;
+}
+
+#my-summary:disabled{
+  opacity:.75;
+}
+
+.make-foot{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:10px;
+}
+
+#summary-count{
+  font-size:13px;
+  color:var(--ink-soft);
+}
+
+#summary-count.over{
+  color:var(--stamp);
+  font-weight:700;
+}
+
+#summary-status{
+  margin-right:10px;
+  font-size:13px;
+  color:var(--ok);
+}
+
+button.save{
+  margin-top:0;
+  padding:9px 20px;
+  font-size:14px;
+  background:var(--ink);
 }
 
 .caution{
@@ -380,9 +460,15 @@ button.adopt[aria-pressed="true"]{
       </p>
 
       <p>
-        クラスページに載せたい発言があれば、希望を選ぶこともできます（任意）。
+        クラスページに載せたい発言があれば、発言の左の□にチェックを入れて、
+        希望を伝えることもできます（任意）。
         <b>ただし、文字数の関係上、意見を反映できず、
         委員が独断でクラスページに載せる内容を決定する可能性が大いにあります。</b>
+      </p>
+
+      <p>
+        回答は、これから増えることがあります。
+        届いていない分は、あとで開き直すと表示されます。
       </p>
 
     </div>
@@ -392,6 +478,56 @@ button.adopt[aria-pressed="true"]{
     <div class="notice" id="adopt-note" role="alert"></div>
 
     <div id="answer-list"></div>
+
+    <div class="card make-card" id="make-card">
+
+      <h2>自分でまとめる（任意）</h2>
+
+      <p class="lead2">
+        届いた意見を参考に、クラスページに載せたい内容を、
+        自分で文章にまとめることもできます。
+        保存した文章は、クラスページを担当する委員に伝わります。
+      </p>
+
+      <div class="make-tools">
+
+        <button type="button" class="quiet" id="insert-checked">
+          チェックした発言を下書きに入れる
+        </button>
+
+        <button type="button" class="quiet" id="copy-all">
+          届いた発言をすべてコピー
+        </button>
+
+        <span id="tool-status" role="status"></span>
+
+      </div>
+
+      <textarea
+        id="my-summary"
+        aria-label="自分でまとめた文章"
+        placeholder="ここに、自分でまとめた文章を書けます"
+      ></textarea>
+
+      <div class="make-foot">
+
+        <span id="summary-count"></span>
+
+        <span>
+
+          <span id="summary-status" role="status"></span>
+
+          <button type="button" class="save" id="save-summary">
+            保存する
+          </button>
+
+        </span>
+
+      </div>
+
+      <div class="notice" id="summary-note" role="alert"></div>
+
+    </div>
 
   </div>
 
@@ -440,6 +576,9 @@ const MESSAGES = {
 
   not_found:
     "この発言が見つかりませんでした。ページを開き直してください。",
+
+  too_long:
+    "文字数が上限を超えています。短くしてから保存してください。",
 
   error:
     "読み込みに失敗しました。時間をおいて、もう一度お試しください。"
@@ -513,12 +652,49 @@ async function loadNumbers(){
 
 const session = {
   number:null,
-  code:null
+  code:null,
+  responses:[],
+  adoptionOpen:true,
+  summaryMax:300,
+  saved:""
 };
 
 
 const adoptNote =
   document.getElementById("adopt-note");
+
+const summaryBox =
+  document.getElementById("my-summary");
+
+const summaryCount =
+  document.getElementById("summary-count");
+
+const summaryStatus =
+  document.getElementById("summary-status");
+
+const summaryNote =
+  document.getElementById("summary-note");
+
+const toolStatus =
+  document.getElementById("tool-status");
+
+const saveSummaryButton =
+  document.getElementById("save-summary");
+
+const insertButton =
+  document.getElementById("insert-checked");
+
+const copyButton =
+  document.getElementById("copy-all");
+
+
+/* 文字数は、絵文字なども1文字として数える */
+
+function charLen(text){
+
+  return Array.from(text).length;
+
+}
 
 
 function updateAdoptCount(){
@@ -530,32 +706,42 @@ function updateAdoptCount(){
 
   document.getElementById("adopt-line").textContent =
     count > 0
-      ? `掲載を希望する発言：${count}件`
-      : "掲載を希望する発言は、選ばれていません。";
+      ? `チェックした発言：${count}件`
+      : "チェックした発言は、まだありません。";
 
 }
 
 
-function setAdopted(button, block, adopted){
+/* 受付が締め切られたとき：チェックと、まとめ欄の編集を止める */
 
-  block.classList.toggle("adopted", adopted);
+function lockEditing(){
 
-  button.setAttribute("aria-pressed", String(adopted));
+  session.adoptionOpen = false;
 
-  button.textContent =
-    adopted ? "掲載を希望中（押すと取り消し）" : "掲載を希望する";
+  document
+    .querySelectorAll("#answer-list .pick input")
+    .forEach(input => { input.disabled = true; });
+
+  summaryBox.disabled = true;
+
+  insertButton.disabled = true;
+
+  adoptNote.textContent = MESSAGES.adoption_closed;
+
+  adoptNote.style.display = "block";
+
+  onSummaryInput();
 
 }
 
 
-async function toggleAdoption(button, block, key, field){
+async function toggleAdoption(input, block, key, field){
 
-  const next =
-    button.getAttribute("aria-pressed") !== "true";
+  const next = input.checked;
 
   adoptNote.style.display = "none";
 
-  button.disabled = true;
+  input.disabled = true;
 
   try{
 
@@ -575,6 +761,16 @@ async function toggleAdoption(button, block, key, field){
 
       console.error(error);
 
+      input.checked = !next;
+
+      if(data && data.reason === "adoption_closed"){
+
+        lockEditing();
+
+        return;
+
+      }
+
       adoptNote.textContent =
         MESSAGES[data && data.reason] || MESSAGES.error;
 
@@ -584,13 +780,27 @@ async function toggleAdoption(button, block, key, field){
 
     }
 
-    setAdopted(button, block, next);
+    block.classList.toggle("adopted", next);
 
     updateAdoptCount();
 
+  }catch(err){
+
+    console.error(err);
+
+    input.checked = !next;
+
+    adoptNote.textContent = MESSAGES.error;
+
+    adoptNote.style.display = "block";
+
   }finally{
 
-    button.disabled = false;
+    if(session.adoptionOpen){
+
+      input.disabled = false;
+
+    }
 
   }
 
@@ -607,6 +817,10 @@ function renderResults(responses, adoptionOpen){
   list.replaceChildren();
 
   adoptNote.style.display = "none";
+
+  session.responses = responses;
+
+  session.adoptionOpen = adoptionOpen;
 
   const countLine =
     document.getElementById("count-line");
@@ -679,6 +893,43 @@ function renderResults(responses, adoptionOpen){
 
       block.className = "answer-block";
 
+      if(isAdopted){
+
+        block.classList.add("adopted");
+
+      }
+
+      /* 発言の左に、チェック欄を置く */
+
+      const pick =
+        document.createElement("label");
+
+      pick.className = "pick";
+
+      pick.title =
+        "クラスページに載せたい発言として、希望を伝える（任意）";
+
+      const input =
+        document.createElement("input");
+
+      input.type = "checkbox";
+
+      input.checked = isAdopted;
+
+      input.disabled = !adoptionOpen;
+
+      input.setAttribute(
+        "aria-label",
+        "この発言を、クラスページに載せたい発言として希望する"
+      );
+
+      pick.appendChild(input);
+
+      const body =
+        document.createElement("div");
+
+      body.className = "body";
+
       const question =
         document.createElement("p");
 
@@ -693,39 +944,17 @@ function renderResults(responses, adoptionOpen){
 
       answer.textContent = value;
 
-      block.append(question, answer);
+      body.append(question, answer);
+
+      block.append(pick, body);
 
       if(adoptionOpen){
 
-        const button =
-          document.createElement("button");
+        input.addEventListener("change", () => {
 
-        button.type = "button";
-
-        button.className = "adopt";
-
-        setAdopted(button, block, isAdopted);
-
-        button.addEventListener("click", () => {
-
-          toggleAdoption(button, block, item.key, q.id);
+          toggleAdoption(input, block, item.key, q.id);
 
         });
-
-        block.appendChild(button);
-
-      }else if(isAdopted){
-
-        block.classList.add("adopted");
-
-        const mark =
-          document.createElement("span");
-
-        mark.className = "adopted-mark";
-
-        mark.textContent = "掲載を希望";
-
-        block.appendChild(mark);
 
       }
 
@@ -742,6 +971,291 @@ function renderResults(responses, adoptionOpen){
   });
 
   updateAdoptCount();
+
+}
+
+
+/* ---------- 自分でまとめる欄 ---------- */
+
+function onSummaryInput(){
+
+  const text =
+    summaryBox.value.trim();
+
+  const n =
+    charLen(text);
+
+  summaryCount.textContent =
+    `${n} / ${session.summaryMax}字`;
+
+  summaryCount.classList.toggle(
+    "over",
+    n > session.summaryMax
+  );
+
+  const dirty =
+    text !== session.saved;
+
+  summaryStatus.textContent =
+    dirty ? "" : (session.saved ? "保存済み" : "");
+
+  saveSummaryButton.disabled =
+    !session.adoptionOpen ||
+    n > session.summaryMax ||
+    !dirty;
+
+}
+
+
+function renderSummary(summary, max, open){
+
+  session.summaryMax =
+    Number(max) > 0 ? Number(max) : 300;
+
+  session.saved =
+    typeof summary === "string" ? summary : "";
+
+  session.adoptionOpen = open;
+
+  summaryBox.value = session.saved;
+
+  summaryBox.disabled = !open;
+
+  summaryBox.placeholder =
+    open
+      ? "ここに、自分でまとめた文章を書けます"
+      : "まとめた文章は、保存されていません。";
+
+  insertButton.disabled = !open;
+
+  summaryNote.style.display = "none";
+
+  toolStatus.textContent = "";
+
+  onSummaryInput();
+
+}
+
+
+/* チェックした発言を、下書きに書き写す（あとで自由に直せます） */
+
+function insertChecked(){
+
+  summaryNote.style.display = "none";
+
+  toolStatus.textContent = "";
+
+  const lines =
+    [...document.querySelectorAll(
+      "#answer-list .answer-block.adopted .answer-a"
+    )]
+      .map(el => el.textContent.trim())
+      .filter(Boolean);
+
+  if(lines.length === 0){
+
+    summaryNote.textContent =
+      "チェックした発言がありません。";
+
+    summaryNote.style.display = "block";
+
+    return;
+
+  }
+
+  const add =
+    lines.map(t => "・" + t).join("\n");
+
+  const current =
+    summaryBox.value.replace(/\s+$/, "");
+
+  summaryBox.value =
+    current ? current + "\n" + add : add;
+
+  onSummaryInput();
+
+  summaryBox.focus();
+
+}
+
+
+function buildAllText(){
+
+  return session.responses
+    .map(item => {
+
+      const answers = item.answers || {};
+
+      return QUESTIONS
+        .map(q => {
+
+          const v =
+            typeof answers[q.id] === "string"
+              ? answers[q.id].trim()
+              : "";
+
+          return v ? `【${q.label}】\n${v}` : "";
+
+        })
+        .filter(Boolean)
+        .join("\n");
+
+    })
+    .filter(Boolean)
+    .join("\n\n----\n\n");
+
+}
+
+
+async function copyAll(){
+
+  summaryNote.style.display = "none";
+
+  toolStatus.textContent = "";
+
+  const text = buildAllText();
+
+  if(!text){
+
+    summaryNote.textContent =
+      "コピーする発言がありません。";
+
+    summaryNote.style.display = "block";
+
+    return;
+
+  }
+
+  let ok = false;
+
+  try{
+
+    await navigator.clipboard.writeText(text);
+
+    ok = true;
+
+  }catch(err){
+
+    try{
+
+      const temp =
+        document.createElement("textarea");
+
+      temp.value = text;
+
+      temp.style.position = "fixed";
+
+      temp.style.opacity = "0";
+
+      document.body.appendChild(temp);
+
+      temp.select();
+
+      ok = document.execCommand("copy");
+
+      temp.remove();
+
+    }catch(err2){
+
+      ok = false;
+
+    }
+
+  }
+
+  if(ok){
+
+    toolStatus.textContent = "コピーしました";
+
+  }else{
+
+    summaryNote.textContent =
+      "コピーできませんでした。";
+
+    summaryNote.style.display = "block";
+
+  }
+
+}
+
+
+async function saveSummary(){
+
+  summaryNote.style.display = "none";
+
+  const text =
+    summaryBox.value.trim();
+
+  if(charLen(text) > session.summaryMax){
+
+    summaryNote.textContent = MESSAGES.too_long;
+
+    summaryNote.style.display = "block";
+
+    return;
+
+  }
+
+  saveSummaryButton.disabled = true;
+
+  try{
+
+    const { data, error } =
+      await supabaseClient.rpc(
+        "set_my_summary",
+        {
+          p_number: session.number,
+          p_code: session.code,
+          p_text: text
+        }
+      );
+
+    if(error || !data || !data.ok){
+
+      console.error(error);
+
+      if(data && data.reason === "adoption_closed"){
+
+        lockEditing();
+
+        return;
+
+      }
+
+      summaryNote.textContent =
+        MESSAGES[data && data.reason] || MESSAGES.error;
+
+      summaryNote.style.display = "block";
+
+      return;
+
+    }
+
+    session.saved = text;
+
+    summaryBox.value = text;
+
+    onSummaryInput();
+
+    summaryStatus.textContent = "保存しました";
+
+  }catch(err){
+
+    console.error(err);
+
+    summaryNote.textContent = MESSAGES.error;
+
+    summaryNote.style.display = "block";
+
+  }finally{
+
+    if(summaryStatus.textContent !== "保存しました"){
+
+      onSummaryInput();
+
+    }
+
+  }
 
 }
 
@@ -816,6 +1330,12 @@ async function showMyResponses(){
       data.adoption_open !== false
     );
 
+    renderSummary(
+      data.summary,
+      data.summary_max,
+      data.adoption_open !== false
+    );
+
     ownCode.value = "";
 
     document.getElementById("auth-card").style.display = "none";
@@ -841,6 +1361,16 @@ function closeResults(){
 
   session.code = null;
 
+  session.responses = [];
+
+  session.saved = "";
+
+  summaryBox.value = "";
+
+  toolStatus.textContent = "";
+
+  summaryNote.style.display = "none";
+
   document.getElementById("answer-list").replaceChildren();
 
   document.getElementById("results").style.display = "none";
@@ -851,6 +1381,14 @@ function closeResults(){
 
 
 showButton.addEventListener("click", showMyResponses);
+
+summaryBox.addEventListener("input", onSummaryInput);
+
+saveSummaryButton.addEventListener("click", saveSummary);
+
+insertButton.addEventListener("click", insertChecked);
+
+copyButton.addEventListener("click", copyAll);
 
 document
   .getElementById("close-button")
