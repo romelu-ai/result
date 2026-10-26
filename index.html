@@ -53,6 +53,8 @@ mark{background:var(--mark);color:inherit;border-radius:2px;box-shadow:0 2px 0 v
 #select-bar .in{max-width:560px;margin:0 auto;display:flex;align-items:center;gap:10px}
 #select-bar .txt{flex:1;min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #select-bar button{margin:0;padding:10px 16px;font-size:14px;white-space:nowrap}
+.section-title{font-family:'Shippori Mincho',serif;font-weight:700;font-size:17px;margin:30px 0 12px}
+.answer-block + .answer-block{padding-top:16px;border-top:1px dashed var(--paper-line)}
 @media (prefers-reduced-motion:no-preference){#results .card{animation:rise .35s ease both}}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 </style>
@@ -71,7 +73,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;box-shadow:0 2px 0 v
     <input type="text" id="own-code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12">
     <button type="button" id="show-button">回答を見る</button>
     <div class="notice" id="notice" role="alert"></div>
-    <p class="hint">個別コードは先生から1人ずつ渡されます。他の人に見せないでください。</p>
+    <p class="hint">個別コードは1人ずつ渡されます。他の人に見せないでください。</p>
   </div>
 
   <div id="results">
@@ -81,14 +83,15 @@ mark{background:var(--mark);color:inherit;border-radius:2px;box-shadow:0 2px 0 v
     </div>
 
     <div class="caution">
-      <p>この画面の目的は、あなたについて書かれた内容を知ってもらうことです。</p>
+      <p>この画面では、あなたへのクラスの人からの印象を見ることができます。</p>
+      <p>誰が回答したのかは表示されません。</p>
       <p>
-        クラスページに載せたい部分があれば、発言の文字をなぞって（スマホは長押しして）選び、
+        クラスページに載せたい部分があれば、発言の文字をなぞって（スマホは長押しして）選択し、
         下に出る「この部分を採用」を押してください（任意）。
         1つの発言の中から、一部だけを選ぶこともできます。
         <b>ただし、文字数の関係上、意見を反映できず、委員が独断でクラスページに載せる内容を決定する可能性が大いにあります。</b>
       </p>
-      <p>回答は、これから増えることがあります。届いていない分は、あとで開き直すと表示されます。</p>
+      <p>何か不都合がありましたら委員のほうまで連絡お願いします。</p>
     </div>
 
     <p class="hint" id="adopt-line"></p>
@@ -294,6 +297,14 @@ document.addEventListener("selectionchange", updateBar);
 
 /* ---------- 回答の表示 ---------- */
 
+function shuffle(arr){
+  for(let i = arr.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 function renderResults(responses, adoptionOpen, selections){
   const list = document.getElementById("answer-list");
   list.replaceChildren();
@@ -316,38 +327,46 @@ function renderResults(responses, adoptionOpen, selections){
   }
   if(!adoptionOpen) showAdoptNote(MESSAGES.adoption_closed);
 
-  responses.forEach(item => {
-    const answers = item.answers || {};
+  /* 誰が書いたか推測されにくいよう、質問ごとに分けて、順番もばらばらにして表示する */
+  QUESTIONS.forEach(q => {
+    const items = [];
+    responses.forEach(item => {
+      const answers = item.answers || {};
+      const value = typeof answers[q.id] === "string" ? answers[q.id] : "";
+      if(value.trim()) items.push({ key: item.key, value });
+    });
+    if(items.length === 0) return;
+    shuffle(items);
+
+    const section = document.createElement("section");
+    const title = document.createElement("h2");
+    title.className = "section-title";
+    title.textContent = q.label;
     const card = document.createElement("div");
     card.className = "card";
+    section.append(title, card);
 
-    QUESTIONS.forEach(q => {
-      const value = typeof answers[q.id] === "string" ? answers[q.id] : "";
-      if(!value.trim()) return;
-
+    items.forEach(it => {
       const block = document.createElement("div");
       block.className = "answer-block";
-      const question = document.createElement("p");
-      question.className = "answer-q";
-      question.textContent = q.label;
       const answer = document.createElement("p");
       answer.className = "answer-a";
       const chips = document.createElement("div");
       chips.className = "chips";
-      block.append(question, answer, chips);
+      block.append(answer, chips);
       card.appendChild(block);
 
       const ctx = {
-        key: item.key, field: q.id, chars: Array.from(value),
+        key: it.key, field: q.id, chars: Array.from(it.value),
         el: answer, chipsEl: chips, block,
         ranges: selections
-          .filter(r => String(r.key) === String(item.key) && r.field === q.id)
+          .filter(r => String(r.key) === String(it.key) && r.field === q.id)
           .map(r => ({ s:r.s, e:r.e }))
       };
       ctxByEl.set(answer, ctx);
       paint(ctx);
     });
-    if(card.childElementCount > 0) list.appendChild(card);
+    list.appendChild(section);
   });
   updateAdoptCount();
 }
